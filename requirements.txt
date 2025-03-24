@@ -1,0 +1,9 @@
+PyQt5>=5.15.0
+requests>=2.25.0
+pycryptodome>=3.9.0
+beautifulsoup4==4.12.2
+lxml>=4.9.3
+fake-useragent==1.2.1
+
+# 开发依赖 (可选)
+pyinstaller>=5.13.0 ; python_version >= '3.6' 
