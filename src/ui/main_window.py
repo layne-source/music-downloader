@@ -273,9 +273,9 @@ class MainWindow(QMainWindow):
         self.search_layout.addWidget(self.search_input, 1)  # 设置拉伸因子为1，使其可以自适应
         
         # 搜索按钮
-        search_btn = QPushButton("搜索")
-        search_btn.setFixedWidth(80)  # 固定宽度
-        search_btn.setStyleSheet("""
+        self.search_btn = QPushButton("搜索")
+        self.search_btn.setFixedWidth(80)  # 固定宽度
+        self.search_btn.setStyleSheet("""
             QPushButton {
                 background-color: #1E90FF;
                 color: white;
@@ -288,8 +288,8 @@ class MainWindow(QMainWindow):
                 background-color: #1a7fd1;
             }
         """)
-        search_btn.clicked.connect(self.search_music)
-        self.search_layout.addWidget(search_btn)
+        self.search_btn.clicked.connect(self.search_music)
+        self.search_layout.addWidget(self.search_btn)
         
         # 平台标题
         platform_label = QLabel(f"{self.current_api.name}")
@@ -1013,10 +1013,17 @@ class MainWindow(QMainWindow):
         self.download_btn.setEnabled(False)
         self.batch_download_btn.setEnabled(False)
         
+        # 禁用搜索和分页按钮，防止用户在下载过程中切换
+        self.search_btn.setEnabled(False)
+        self.prev_page_btn.setEnabled(False)
+        self.next_page_btn.setEnabled(False)
+        
         # 创建下载队列
         self.download_queue = songs_list.copy()
         self.total_songs = len(self.download_queue)
         self.downloaded_count = 0
+        # 创建失败列表
+        self.failed_songs = []
         
         # 开始下载第一首歌曲
         self.download_next_song()
@@ -1025,13 +1032,29 @@ class MainWindow(QMainWindow):
         """下载队列中的下一首歌曲"""
         if not self.download_queue:
             # 队列为空，下载完成
-            self.show_message(f'批量下载完成，共 {self.downloaded_count}/{self.total_songs} 首歌曲下载成功')
+            completion_message = f'批量下载完成，共 {self.downloaded_count}/{self.total_songs} 首歌曲下载成功'
+            
+            # 如果有失败的歌曲，添加到提示信息中
+            if self.failed_songs:
+                completion_message += "\n\n下载失败的歌曲："
+                for i, (song, error) in enumerate(self.failed_songs):
+                    if i < 5:  # 仅显示前5首，避免消息框过长
+                        completion_message += f"\n- {song['name']} - {song['singer']}"
+                    else:
+                        completion_message += f"\n...等 {len(self.failed_songs)} 首歌曲下载失败"
+                        break
+            
+            self.show_message(completion_message)
             
             # 重置进度条
             self.progress_bar.setValue(0)
             
             # 恢复按钮状态
             self.batch_download_btn.setEnabled(True)
+            self.search_btn.setEnabled(True)
+            self.prev_page_btn.setEnabled(self.current_api.current_page > 1)
+            self.next_page_btn.setEnabled(True)
+            
             if self.current_song:
                 self.download_btn.setEnabled(True)
             
@@ -1043,6 +1066,9 @@ class MainWindow(QMainWindow):
         # 取出队列中的第一首歌曲
         song = self.download_queue.pop(0)
         self.current_song = song
+        
+        # 重置进度条
+        self.progress_bar.setValue(0)
         
         # 更新状态栏
         self.update_status_bar(f"正在下载: {song['name']} - {song['singer']}... ({self.downloaded_count+1}/{self.total_songs})")
@@ -1111,6 +1137,9 @@ class MainWindow(QMainWindow):
         song = self.current_song
         
         print(f"批量下载出错: {song['name']} - {song['singer']}, 错误: {error_msg}")
+        
+        # 记录失败的歌曲和错误信息
+        self.failed_songs.append((song, error_msg))
         
         # 更新状态栏
         self.update_status_bar(f"下载出错: {song['name']} - {song['singer']}, 继续下载其他歌曲...")
