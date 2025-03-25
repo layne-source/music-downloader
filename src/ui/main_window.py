@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QLabel, QLineEdit, QPushButton, QComboBox, 
                             QTableWidget, QTableWidgetItem, QHeaderView, 
                             QFileDialog, QMessageBox, QApplication, QProgressBar,
-                            QStatusBar, QDesktopWidget, QRadioButton)
+                            QStatusBar, QDesktopWidget, QRadioButton, QCheckBox)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QIcon, QFont, QColor
 
@@ -305,8 +305,8 @@ class MainWindow(QMainWindow):
     
     def create_result_area(self):
         """创建结果显示区域"""
-        self.result_table = QTableWidget(0, 6)  # 6列，去掉时长
-        self.result_table.setHorizontalHeaderLabels(["歌曲名", "歌手", "专辑", "大小", "音质", "来源"])
+        self.result_table = QTableWidget(0, 7)  # 7列，增加一列用于复选框
+        self.result_table.setHorizontalHeaderLabels(["歌曲名", "歌手", "专辑", "大小", "音质", "来源", "选择"])
         
         # 设置表格属性
         header = self.result_table.horizontalHeader()
@@ -316,6 +316,7 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)  # 复选框列宽自适应
         
         # 允许多选
         self.result_table.setSelectionMode(QTableWidget.ExtendedSelection)
@@ -594,6 +595,17 @@ class MainWindow(QMainWindow):
         # 获取所有选中的行
         selected_rows = self.result_table.selectionModel().selectedRows()
         
+        # 检查是否有勾选的歌曲
+        checked_songs = self.get_checked_songs()
+        if checked_songs:
+            # 如果有勾选的歌曲，始终启用下载按钮
+            self.download_btn.setEnabled(True)
+            if len(checked_songs) > 1:
+                self.current_song_label.setText(f"已勾选 {len(checked_songs)} 首歌曲")
+            else:
+                self.current_song_label.setText(f"已勾选: {checked_songs[0]['name']} - {checked_songs[0]['singer']}")
+            return
+        
         if len(selected_rows) == 1:
             # 单选模式
             row = selected_rows[0].row()
@@ -620,8 +632,8 @@ class MainWindow(QMainWindow):
             self.current_song = None
             self.current_song_label.setText(f"已选择 {len(selected_rows)} 首歌曲")
             
-            # 禁用单个下载按钮，使用批量下载
-            self.download_btn.setEnabled(False)
+            # 启用下载按钮，允许多选下载
+            self.download_btn.setEnabled(True)
         else:
             # 没有选中行
             self.current_song = None
@@ -709,6 +721,11 @@ class MainWindow(QMainWindow):
         if next_page_results:
             # 替换结果列表，而不是追加
             self.result_list = next_page_results
+            
+            # 清除当前选择
+            self.current_song = None
+            
+            # 更新表格
             self.update_result_table()
             
             # 更新页码信息
@@ -738,6 +755,11 @@ class MainWindow(QMainWindow):
         if prev_page_results:
             # 替换结果列表，而不是追加
             self.result_list = prev_page_results
+            
+            # 清除当前选择
+            self.current_song = None
+            
+            # 更新表格
             self.update_result_table()
             
             # 更新页码信息
@@ -753,25 +775,59 @@ class MainWindow(QMainWindow):
         """
         下载选中的歌曲
         """
-        # 检查当前是否已选择歌曲
-        if self.current_song:
-            song = self.current_song
-        else:
-            # 获取选中的行
-            selected_rows = self.result_table.selectionModel().selectedRows()
-            
-            if len(selected_rows) == 0:
-                self.show_message('请先选择要下载的歌曲')
+        # 获取已勾选的歌曲
+        checked_songs = self.get_checked_songs()
+        
+        # 如果有勾选的歌曲，则下载勾选的歌曲
+        if checked_songs:
+            # 如果勾选了多首歌曲，显示确认对话框
+            if len(checked_songs) > 1:
+                reply = QMessageBox.question(
+                    self, 
+                    '多首歌曲下载', 
+                    f'您已选择了 {len(checked_songs)} 首歌曲，确定要下载吗？',
+                    QMessageBox.Yes | QMessageBox.No, 
+                    QMessageBox.Yes
+                )
+                
+                if reply == QMessageBox.Yes:
+                    # 使用批量下载逻辑，下载所有勾选的歌曲
+                    self.batch_download_songs(checked_songs)
                 return
+            else:
+                # 单首歌曲直接下载
+                self.batch_download_songs(checked_songs)
+            return
+        
+        # 如果没有勾选的歌曲，则使用表格选中的行
+        selected_rows = self.result_table.selectionModel().selectedRows()
+        
+        if len(selected_rows) == 0:
+            self.show_message('请先选择要下载的歌曲（勾选或点击选中）')
+            return
+        
+        # 如果选中了多行，使用批量下载逻辑
+        if len(selected_rows) > 1:
+            songs_to_download = []
+            for row in selected_rows:
+                row_index = row.row()
+                if row_index < len(self.result_list):
+                    songs_to_download.append(self.result_list[row_index])
             
-            # 获取选中的歌曲
-            row = selected_rows[0].row()
-            if row >= len(self.result_list):
-                self.show_message('选择的歌曲无效，请重新选择')
-                return
-            
-            song = self.result_list[row]
-            self.current_song = song
+            # 使用批量下载逻辑
+            if songs_to_download:
+                self.batch_download_songs(songs_to_download)
+            return
+        
+        # 对于单个选择的情况
+        # 获取选中的歌曲
+        row = selected_rows[0].row()
+        if row >= len(self.result_list):
+            self.show_message('选择的歌曲无效，请重新选择')
+            return
+        
+        song = self.result_list[row]
+        self.current_song = song
         
         # 更新状态栏
         self.update_status_bar(f"正在下载: {song['name']} - {song['singer']}...")
@@ -921,13 +977,14 @@ class MainWindow(QMainWindow):
 
     def batch_download_music(self):
         """批量下载歌曲"""
-        selected_rows = self.result_table.selectionModel().selectedRows()
+        # 首先检查是否有勾选的歌曲
+        checked_songs = self.get_checked_songs()
         
-        # 如果有选中行，就只下载选中的歌曲
-        if len(selected_rows) > 0:
-            songs_to_download = [self.result_list[row.row()] for row in selected_rows]
+        if checked_songs:
+            # 使用勾选的歌曲
+            songs_to_download = checked_songs
         else:
-            # 否则下载当前页面所有歌曲
+            # 如果没有勾选的歌曲，则直接下载当前页面所有歌曲，忽略表格选择状态
             songs_to_download = self.result_list
         
         if not songs_to_download:
@@ -977,6 +1034,9 @@ class MainWindow(QMainWindow):
             self.batch_download_btn.setEnabled(True)
             if self.current_song:
                 self.download_btn.setEnabled(True)
+            
+            # 清除所有复选框
+            self.clear_all_checkboxes()
             
             return
         
@@ -1035,6 +1095,9 @@ class MainWindow(QMainWindow):
         # 更新计数
         self.downloaded_count += 1
         
+        # 更新状态栏显示当前进度
+        self.update_status_bar(f"正在下载: {self.downloaded_count}/{self.total_songs} 首歌曲")
+        
         # 继续下载下一首
         self.download_next_song()
     
@@ -1048,6 +1111,9 @@ class MainWindow(QMainWindow):
         song = self.current_song
         
         print(f"批量下载出错: {song['name']} - {song['singer']}, 错误: {error_msg}")
+        
+        # 更新状态栏
+        self.update_status_bar(f"下载出错: {song['name']} - {song['singer']}, 继续下载其他歌曲...")
         
         # 继续下载下一首
         self.download_next_song()
@@ -1070,6 +1136,9 @@ class MainWindow(QMainWindow):
         """更新结果表格
         :param clear_only: 是否只清空表格，不显示提示
         """
+        # 清除当前的选择状态
+        self.current_song = None
+        
         if not self.result_list:
             # 清空表格
             self.result_table.setRowCount(0)
@@ -1123,7 +1192,29 @@ class MainWindow(QMainWindow):
             # 来源
             source_text = self.current_api.name
             self.result_table.setItem(row, 5, QTableWidgetItem(source_text))
+            
+            # 选择
+            select_item = QTableWidgetItem()
+            select_item.setCheckState(Qt.Unchecked)
+            self.result_table.setItem(row, 6, select_item)
         
         # 如果有结果，启用批量下载按钮
         if len(self.result_list) > 0:
             self.batch_download_btn.setEnabled(True) 
+
+    def get_checked_songs(self):
+        """获取所有被选中的歌曲"""
+        checked_songs = []
+        for row in range(self.result_table.rowCount()):
+            check_item = self.result_table.item(row, 6)
+            if check_item and check_item.checkState() == Qt.Checked:
+                song = self.result_list[row]
+                checked_songs.append(song) 
+        return checked_songs
+
+    def clear_all_checkboxes(self):
+        """清除所有复选框"""
+        for row in range(self.result_table.rowCount()):
+            check_item = self.result_table.item(row, 6)
+            if check_item:
+                check_item.setCheckState(Qt.Unchecked) 
