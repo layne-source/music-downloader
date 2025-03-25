@@ -250,9 +250,11 @@ def build_executable():
     ]
     
     # 添加图标
-    icon_path = os.path.join("src", "icons", "icon.ico")
+    icon_path = os.path.join("icons", "icon.ico")
     if os.path.exists(icon_path):
         cmd.extend(["--icon", icon_path])
+    else:
+        print("警告: 未找到图标文件，将使用默认图标")
     
     # 添加关键的隐藏导入
     essential_imports = [
